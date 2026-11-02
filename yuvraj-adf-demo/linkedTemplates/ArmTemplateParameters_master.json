@@ -1,0 +1,33 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "yuvraj-adf-demo"
+		},
+		"LS_SQL_DB_password": {
+			"value": ""
+		},
+		"LS_ADLS_properties_typeProperties_url": {
+			"value": "https://demostorageaccount212.dfs.core.windows.net/"
+		},
+		"LS_SQL_DB_properties_typeProperties_server": {
+			"value": "de-sql-server21.database.windows.net"
+		},
+		"LS_SQL_DB_properties_typeProperties_database": {
+			"value": "de_database"
+		},
+		"LS_SQL_DB_properties_typeProperties_userName": {
+			"value": "yuvraj"
+		},
+		"AZR_EVENT_SIMPLE_properties_typeProperties_scope": {
+			"value": "/subscriptions/56f3566d-ee0a-4aca-bb49-82d56702a17b/resourceGroups/yuvraj-data-engineering/providers/Microsoft.Storage/storageAccounts/demostorageaccount212"
+		},
+		"containerUri": {
+			"value": ""
+		},
+		"containerSasToken": {
+			"value": ""
+		}
+	}
+}
