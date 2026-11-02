@@ -1,0 +1,317 @@
+{
+	"name": "PL_INGESTION",
+	"properties": {
+		"activities": [
+			{
+				"name": "read_watermark",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT watermark_value FROM metadata.table_watermarks\nwhere table_name = '@{toLower(pipeline().parameters.table_to_read)}'\n",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_SQL_DB",
+						"type": "DatasetReference",
+						"parameters": {
+							"schema": {
+								"value": "@pipeline().parameters.schema_name",
+								"type": "Expression"
+							}
+						}
+					}
+				}
+			},
+			{
+				"name": "check_source_count",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "check_source_record_count",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@greater(int(activity('check_source_record_count').output.firstRow.record_count), 0)",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "FAILURE_MAIL",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"policy": {
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_SEND_EMAIL",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"table_name": {
+										"value": "@pipeline().parameters.table_to_read",
+										"type": "Expression"
+									},
+									"recipient_email": {
+										"value": "@pipeline().globalParameters.email_recepient",
+										"type": "Expression"
+									},
+									"status": "FAILURE - NO RECORD TO INSERT"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "SUCCESS_MAIL",
+							"type": "ExecutePipeline",
+							"dependsOn": [
+								{
+									"activity": "data_movement_sql_to_adls_gen2",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_SEND_EMAIL",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"table_name": {
+										"value": "@pipeline().parameters.table_to_read",
+										"type": "Expression"
+									},
+									"recipient_email": {
+										"value": "@pipeline().globalParameters.email_recepient",
+										"type": "Expression"
+									},
+									"status": "SUCCESS"
+								}
+							}
+						},
+						{
+							"name": "data_movement_sql_to_adls_gen2",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "SELECT * FROM \ndbo.@{pipeline().parameters.table_to_read}\nwhere modifieddate > '@{activity('read_watermark').output.firstRow.watermark_value}'",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "DelimitedTextSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "DelimitedTextWriteSettings",
+										"quoteAllText": true,
+										"fileExtension": ".txt"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_SQL_DB",
+									"type": "DatasetReference",
+									"parameters": {
+										"schema": {
+											"value": "@pipeline().parameters.schema_name",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_ADLS_STORAGE",
+									"type": "DatasetReference",
+									"parameters": {
+										"table_name": {
+											"value": "@pipeline().parameters.table_to_read",
+											"type": "Expression"
+										},
+										"file_name": {
+											"value": "@concat(pipeline().parameters.table_to_read,'_', utcNow())",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "update_watermark",
+							"type": "Script",
+							"dependsOn": [
+								{
+									"activity": "data_movement_sql_to_adls_gen2",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "LS_SQL_DB",
+								"type": "LinkedServiceReference"
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "UPDATE metadata.table_watermarks\nSET watermark_value = SYSUTCDATETIME()\nWHERE table_name = '@{pipeline().parameters.table_to_read}'",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "check_source_record_count",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "read_watermark",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "SELECT \nCOUNT(*) as record_count\nFROM @{pipeline().parameters.schema_name}.@{pipeline().parameters.table_to_read}\nwhere modifieddate > '@{activity('read_watermark').output.firstRow.watermark_value}'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_SQL_DB",
+						"type": "DatasetReference",
+						"parameters": {
+							"schema": "dbo"
+						}
+					}
+				}
+			},
+			{
+				"name": "table_not_found_mail",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "check_source_record_count",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_SEND_EMAIL",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"table_name": {
+							"value": "@pipeline().parameters.table_to_read",
+							"type": "Expression"
+						},
+						"recipient_email": {
+							"value": "@pipeline().globalParameters.email_recepient",
+							"type": "Expression"
+						},
+						"status": "TABLE NOT FOUND"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"table_to_read": {
+				"type": "string"
+			},
+			"schema_name": {
+				"type": "string",
+				"defaultValue": "dbo"
+			}
+		},
+		"annotations": [],
+		"lastPublishTime": "2026-11-02T20:02:12Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}

@@ -1,0 +1,21 @@
+{
+	"name": "yuvraj-adf-demo",
+	"properties": {
+		"globalParameters": {
+			"email_recepient": {
+				"type": "string",
+				"value": "yuvraj.is.coding@gmail.com"
+			}
+		},
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "centralindia",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "52c88c4a-32b6-4f89-ae39-c0ea65b55369",
+		"tenantId": "adcd34ef-08ab-4ae1-9bcc-a7e07c821930"
+	}
+}

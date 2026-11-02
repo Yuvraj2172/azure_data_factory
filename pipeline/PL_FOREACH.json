@@ -1,0 +1,184 @@
+{
+	"name": "PL_FOREACH",
+	"properties": {
+		"activities": [
+			{
+				"name": "table_ingestion_loop",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "check_tables_to_feed",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('check_tables_to_feed').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 2,
+					"activities": [
+						{
+							"name": "execute_ingested_pipeline",
+							"type": "ExecutePipeline",
+							"dependsOn": [],
+							"policy": {
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"pipeline": {
+									"referenceName": "PL_INGESTION",
+									"type": "PipelineReference"
+								},
+								"waitOnCompletion": true,
+								"parameters": {
+									"table_to_read": {
+										"value": "@item().table_name",
+										"type": "Expression"
+									},
+									"schema_name": "dbo"
+								}
+							}
+						},
+						{
+							"name": "Store Table Success",
+							"type": "AppendVariable",
+							"dependsOn": [
+								{
+									"activity": "execute_ingested_pipeline",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "table_status",
+								"value": {
+									"value": "@{item().table_name} - Success",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "Store Table Failure",
+							"type": "AppendVariable",
+							"dependsOn": [
+								{
+									"activity": "execute_ingested_pipeline",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "table_status",
+								"value": {
+									"value": "@{item().table_name} - Failure",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "check_tables_to_feed",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": "SELECT table_name FROM metadata.table_list",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_SQL_DB",
+						"type": "DatasetReference",
+						"parameters": {
+							"schema": "dbo"
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "Send Consolidated Email",
+				"type": "ExecutePipeline",
+				"dependsOn": [
+					{
+						"activity": "table_ingestion_loop",
+						"dependencyConditions": [
+							"Completed"
+						]
+					}
+				],
+				"policy": {
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"pipeline": {
+						"referenceName": "PL_SEND_EMAIL_MULTIPLE",
+						"type": "PipelineReference"
+					},
+					"waitOnCompletion": true,
+					"parameters": {
+						"recipient_email": {
+							"value": "@pipeline().globalParameters.email_recepient",
+							"type": "Expression"
+						},
+						"table_status": {
+							"value": "@variables('table_status')",
+							"type": "Expression"
+						},
+						"for_each_run_id": {
+							"value": "@{pipeline().RunId}",
+							"type": "Expression"
+						}
+					}
+				}
+			},
+			{
+				"name": "Fail1",
+				"type": "Fail",
+				"dependsOn": [
+					{
+						"activity": "table_ingestion_loop",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"message": "This pipeline failed due to an internal activity failure",
+					"errorCode": "500"
+				}
+			}
+		],
+		"variables": {
+			"table_status": {
+				"type": "Array"
+			}
+		},
+		"annotations": [],
+		"lastPublishTime": "2026-11-02T20:02:12Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}
